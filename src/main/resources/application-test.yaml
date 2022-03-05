@@ -2,9 +2,9 @@ spring:
   # MySQL 配置
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver # MySQL驱动，无需修改
-    url: jdbc:mysql://localhost:3306/express?useUnicode=true&characterEncoding=utf-8&useSSL=true&serverTimezone=GMT%2B8
+    url: jdbc:mysql://119.45.254.197:3306/express?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=GMT%2B8
     username: root # 数据库连接名
-    password: root # 数据库连接密码
+    password: 5130109319@ymxdr # 数据库连接密码
   # Redis 配置
   redis:
     host: 127.0.0.1 # Redis地址，本地为127.0.0.1
