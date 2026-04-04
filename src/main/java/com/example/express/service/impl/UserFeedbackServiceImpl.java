@@ -17,6 +17,7 @@ import com.example.express.mapper.UserFeedbackMapper;
 import com.example.express.service.OrderInfoService;
 import com.example.express.service.SysUserService;
 import com.example.express.service.UserFeedbackService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -29,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class UserFeedbackServiceImpl extends ServiceImpl<UserFeedbackMapper, UserFeedback> implements UserFeedbackService {
     @Autowired
@@ -52,50 +54,85 @@ public class UserFeedbackServiceImpl extends ServiceImpl<UserFeedbackMapper, Use
 
     @Override
     public boolean createFeedback(String userId, FeedbackTypeEnum feedbackTypeEnum, String content, String orderId) {
-        UserFeedback feedback = UserFeedback.builder()
-                .id(RandomUtils.time())
-                .userId(userId)
-                .feedbackType(feedbackTypeEnum)
-                .feedbackStatus(FeedbackStatusEnum.WAIT)
-                .content(content).build();
-        if(StringUtils.isNotBlank(orderId)) {
-            feedback.setOrderId(orderId);
-        }
+        try {
+            UserFeedback feedback = UserFeedback.builder()
+                    .id(RandomUtils.time())
+                    .userId(userId)
+                    .feedbackType(feedbackTypeEnum)
+                    .feedbackStatus(FeedbackStatusEnum.WAIT)
+                    .content(content).build();
+            if(StringUtils.isNotBlank(orderId)) {
+                feedback.setOrderId(orderId);
+            }
 
-        return this.retBool(userFeedbackMapper.insert(feedback));
+            return this.retBool(userFeedbackMapper.insert(feedback));
+        } catch (Exception e) {
+            log.error("Create feedback error", e);
+            return false;
+        }
     }
 
     @Override
     public ResponseResult batchCancelOrder(String[] ids, String userId) {
-        int success = 0;
-        for(String id : ids) {
-            UserFeedback feedback = userFeedbackMapper.selectById(id);
-            if(!userId.equals(feedback.getUserId())) {
-                continue;
+        try {
+            int success = 0;
+            for(String id : ids) {
+                UserFeedback feedback = userFeedbackMapper.selectById(id);
+                if (feedback == null) continue;
+                if(!userId.equals(feedback.getUserId())) {
+                    continue;
+                }
+                if (feedback.getFeedbackStatus() != FeedbackStatusEnum.WAIT) {
+                    continue;
+                }
+                if(this.retBool(userFeedbackMapper.deleteById(id))) {
+                    success++;
+                }
             }
-            if (feedback.getFeedbackStatus() != FeedbackStatusEnum.WAIT) {
-                continue;
-            }
-            if(this.retBool(userFeedbackMapper.deleteById(id))) {
-                success++;
-            }
-        }
-        int finalSuccess = success;
-        Map<String, Integer> count = new HashMap<String, Integer>(16) {{
-            put("success", finalSuccess);
-            put("error", ids.length - finalSuccess);
-        }};
+            int finalSuccess = success;
+            Map<String, Integer> count = new HashMap<String, Integer>(16) {{
+                put("success", finalSuccess);
+                put("error", ids.length - finalSuccess);
+            }};
 
-        return ResponseResult.success(count);
+            return ResponseResult.success(count);
+        } catch (Exception e) {
+            log.error("Batch cancel feedback error", e);
+            return ResponseResult.failure(ResponseErrorCodeEnum.SYSTEM_ERROR);
+        }
+    }
+
+    @Override
+    public ResponseResult handleFeedback(String id, String handlerId, String result) {
+        UserFeedback feedback = getById(id);
+        if (feedback == null) {
+            return ResponseResult.failure(ResponseErrorCodeEnum.PARAMETER_ERROR);
+        }
+        if (feedback.getFeedbackStatus() != FeedbackStatusEnum.WAIT) {
+            return ResponseResult.failure(ResponseErrorCodeEnum.OPERATION_ERROR);
+        }
+
+        feedback.setHandler(handlerId);
+        feedback.setResult(result);
+        feedback.setFeedbackStatus(FeedbackStatusEnum.PROCESS);
+        feedback.setUpdateDate(LocalDateTime.now());
+
+        if (updateById(feedback)) {
+            return ResponseResult.success();
+        } else {
+            return ResponseResult.failure(ResponseErrorCodeEnum.OPERATION_ERROR);
+        }
     }
 
     @Override
     public Map<String, Integer> getAdminDashboardData() {
         Map<String, Integer> map = new HashMap<>();
-        Integer todayCount = userFeedbackMapper.selectCount(new QueryWrapper<UserFeedback>().between("create_date",
+        Long todayCountRaw = userFeedbackMapper.selectCount(new QueryWrapper<UserFeedback>().between("create_date",
                 LocalDateTime.of(LocalDate.now(), LocalTime.MIDNIGHT), LocalDateTime.now()));
+        Integer todayCount = todayCountRaw != null ? Math.toIntExact(todayCountRaw) : 0;
 
-        Integer waitCount = userFeedbackMapper.selectCount(new QueryWrapper<UserFeedback>().eq("status", FeedbackStatusEnum.WAIT.getStatus()));
+        Long waitCountRaw = userFeedbackMapper.selectCount(new QueryWrapper<UserFeedback>().eq("status", FeedbackStatusEnum.WAIT.getStatus()));
+        Integer waitCount = waitCountRaw != null ? Math.toIntExact(waitCountRaw) : 0;
 
         map.put("today", todayCount);
         map.put("wait", waitCount);
@@ -105,8 +142,11 @@ public class UserFeedbackServiceImpl extends ServiceImpl<UserFeedbackMapper, Use
     @Override
     public Map<String, Integer> getUserDashboardData(String userId) {
         Map<String, Integer> map = new HashMap<>();
-        Integer waitCount = userFeedbackMapper.selectCount(new QueryWrapper<UserFeedback>().eq("status", FeedbackStatusEnum.WAIT.getStatus()));
-        Integer processCount = userFeedbackMapper.selectCount(new QueryWrapper<UserFeedback>().eq("status", FeedbackStatusEnum.PROCESS.getStatus()));
+        Long waitCountRaw = userFeedbackMapper.selectCount(new QueryWrapper<UserFeedback>().eq("status", FeedbackStatusEnum.WAIT.getStatus()));
+        Integer waitCount = waitCountRaw != null ? Math.toIntExact(waitCountRaw) : 0;
+        
+        Long processCountRaw = userFeedbackMapper.selectCount(new QueryWrapper<UserFeedback>().eq("status", FeedbackStatusEnum.PROCESS.getStatus()));
+        Integer processCount = processCountRaw != null ? Math.toIntExact(processCountRaw) : 0;
 
         map.put("wait", waitCount);
         map.put("process", processCount);
@@ -116,10 +156,12 @@ public class UserFeedbackServiceImpl extends ServiceImpl<UserFeedbackMapper, Use
     @Override
     public Map<String, Integer> getCourierDashboardData() {
         Map<String, Integer> map = new HashMap<>();
-        Integer todayCount = userFeedbackMapper.selectCount(new QueryWrapper<UserFeedback>().between("create_date",
+        Long todayCountRaw = userFeedbackMapper.selectCount(new QueryWrapper<UserFeedback>().between("create_date",
                 LocalDateTime.of(LocalDate.now(), LocalTime.MIDNIGHT), LocalDateTime.now()));
+        Integer todayCount = todayCountRaw != null ? Math.toIntExact(todayCountRaw) : 0;
 
-        Integer waitCount = userFeedbackMapper.selectCount(new QueryWrapper<UserFeedback>().eq("status", FeedbackStatusEnum.WAIT.getStatus()));
+        Long waitCountRaw = userFeedbackMapper.selectCount(new QueryWrapper<UserFeedback>().eq("status", FeedbackStatusEnum.WAIT.getStatus()));
+        Integer waitCount = waitCountRaw != null ? Math.toIntExact(waitCountRaw) : 0;
 
         map.put("today", todayCount);
         map.put("wait", waitCount);

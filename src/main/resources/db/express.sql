@@ -267,9 +267,7 @@ CREATE TABLE `sys_user`  (
 -- ----------------------------
 -- Records of sys_user
 -- ----------------------------
-BEGIN;
-INSERT INTO `sys_user` VALUES ('1', 'user1', '$2a$10$lqib8LGGEziYYaJMmnQ4XubOugCjECjtLHb4yJLgZ.0wDwSjh09Yi', 3, NULL, -1, '1', '1', '123', '17623014429', '2032', 0, NULL, 1, NULL, '2019-04-17 23:10:21', '2019-05-04 14:11:24'), ('4139cb9237a7852e694f3569b9030b2c', 'admin1', '$2a$10$lqib8LGGEziYYaJMmnQ4XubOugCjECjtLHb4yJLgZ.0wDwSjh09Yi', 1, NULL, 1, '拉布拉多', '440102198001021230', '777777777', NULL, '1367', 0, NULL, 1, NULL, '2019-05-03 02:03:48', '2019-05-03 15:17:02'), ('6150146f23bfa506b300f4f2c635dcba', NULL, NULL, 3, NULL, NULL, NULL, NULL, NULL, '17326074239', NULL, 1, '830B7B4639CFB1B4FD0018CC810B8EF6', 1, '2019-05-03 23:18:53', '2019-04-20 15:31:50', '2019-05-03 23:18:53'), ('77d014e9455b27c0696eb9f969f87912', 'user2', '$2a$10$lqib8LGGEziYYaJMmnQ4XubOugCjECjtLHb4yJLgZ.0wDwSjh09Yi', 3, NULL, 1, NULL, NULL, '2222', NULL, '1382', 0, NULL, 1, NULL, NULL, '2019-05-03 14:49:25'), ('92602c3ce0b33707d84d1165ac698db2', NULL, NULL, -1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, NULL, 1, NULL, '2019-04-22 01:48:01', NULL), ('f10960e7392847a2c691ad066e2a87c4', 'courier1', '$2a$10$lqib8LGGEziYYaJMmnQ4XubOugCjECjtLHb4yJLgZ.0wDwSjh09Yi', 2, NULL, 1, 'zhangsan', '12345', '11', NULL, '0', 0, NULL, 1, '0', NULL, '2019-04-22 01:10:24', '2019-05-04 14:12:26');
-COMMIT;
+
 
 -- ----------------------------
 -- Table structure for user_evaluate

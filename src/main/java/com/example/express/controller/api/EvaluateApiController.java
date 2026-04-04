@@ -10,6 +10,7 @@ import com.example.express.domain.bean.OrderEvaluate;
 import com.example.express.domain.bean.SysUser;
 import com.example.express.domain.enums.ResponseErrorCodeEnum;
 import com.example.express.service.OrderEvaluateService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -25,6 +26,7 @@ import java.util.Map;
  * @author jitwxs
  * @date 2019年05月04日 10:15
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/v1/evaluate")
 public class EvaluateApiController {
@@ -40,18 +42,24 @@ public class EvaluateApiController {
     @PreAuthorize("hasRole('ROLE_USER') or hasRole('ROLE_COURIER')")
     public ResponseResult orderEvaluate(@PathVariable String orderId, String score,
                                         String evaluate, @AuthenticationPrincipal SysUser sysUser) {
-        double evaluateScore = getScore(score);
-        if(evaluateScore == -1) {
-            return ResponseResult.failure(ResponseErrorCodeEnum.EVALUATE_SCORE_ERROR);
-        }
+        log.info("Order evaluate, orderId: {}, user: {}, score: {}", orderId, sysUser.getUsername(), score);
+        try {
+            double evaluateScore = getScore(score);
+            if(evaluateScore == -1) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.EVALUATE_SCORE_ERROR);
+            }
 
-        switch (sysUser.getRole()) {
-            case USER:
-                return orderEvaluateService.userEvaluate(orderId, sysUser.getId(), evaluateScore, evaluate);
-            case COURIER:
-                return orderEvaluateService.courierEvaluate(orderId, sysUser.getId(), evaluateScore, evaluate);
-            default:
-                return ResponseResult.failure(ResponseErrorCodeEnum.NO_PERMISSION);
+            switch (sysUser.getRole()) {
+                case USER:
+                    return orderEvaluateService.userEvaluate(orderId, sysUser.getId(), evaluateScore, evaluate);
+                case COURIER:
+                    return orderEvaluateService.courierEvaluate(orderId, sysUser.getId(), evaluateScore, evaluate);
+                default:
+                    return ResponseResult.failure(ResponseErrorCodeEnum.NO_PERMISSION);
+            }
+        } catch (Exception e) {
+            log.error("Error evaluating order", e);
+            return ResponseResult.failure(ResponseErrorCodeEnum.SYSTEM_ERROR);
         }
     }
 

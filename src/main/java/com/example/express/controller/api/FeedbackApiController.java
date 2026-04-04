@@ -1,6 +1,7 @@
 package com.example.express.controller.api;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.OrderItem;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.express.common.util.StringUtils;
 import com.example.express.domain.ResponseResult;
@@ -13,6 +14,7 @@ import com.example.express.domain.vo.BootstrapTableVO;
 import com.example.express.domain.vo.UserFeedbackVO;
 import com.example.express.service.OrderInfoService;
 import com.example.express.service.UserFeedbackService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -26,6 +28,7 @@ import java.util.Date;
  * @author xiangsheng.wu
  * @date 2019年04月23日 15:14
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/v1/feedback")
 public class FeedbackApiController {
@@ -46,39 +49,45 @@ public class FeedbackApiController {
                                                          @DateTimeFormat(pattern = "yyyy-MM-dd") Date startDate,
                                                          @DateTimeFormat(pattern = "yyyy-MM-dd") Date endDate,
                                                          @AuthenticationPrincipal SysUser sysUser) {
-        Page<UserFeedback> page = new Page<>(current, size);
-        page.setDesc("create_date");
-        QueryWrapper<UserFeedback> wrapper = new QueryWrapper<>();
+        log.info("List feedback, user: {}, type: {}, status: {}", sysUser.getUsername(), type, status);
+        try {
+            Page<UserFeedback> page = new Page<>(current, size);
+            page.addOrder(OrderItem.desc("create_date"));
+            QueryWrapper<UserFeedback> wrapper = new QueryWrapper<>();
 
-        Integer feedStatus = StringUtils.toInteger(status, -1);
-        if(FeedbackStatusEnum.getByStatus(feedStatus) != null) {
-            wrapper.eq("status", feedStatus);
-        }
+            Integer feedStatus = StringUtils.toInteger(status, -1);
+            if(FeedbackStatusEnum.getByStatus(feedStatus) != null) {
+                wrapper.eq("status", feedStatus);
+            }
 
-        Integer feedbackType1 = StringUtils.toInteger(type, -1);
-        if(FeedbackTypeEnum.getByType(feedbackType1) != null) {
-            wrapper.eq("type", feedbackType1);
-        }
+            Integer feedbackType1 = StringUtils.toInteger(type, -1);
+            if(FeedbackTypeEnum.getByType(feedbackType1) != null) {
+                wrapper.eq("type", feedbackType1);
+            }
 
-        if(StringUtils.isNotBlank(id)) {
-            wrapper.eq("id", id);
-        }
-        if(startDate != null) {
-            wrapper.ge("create_date", startDate);
-        }
-        if(endDate != null) {
-            wrapper.le("create_date", endDate);
-        }
+            if(StringUtils.isNotBlank(id)) {
+                wrapper.eq("id", id);
+            }
+            if(startDate != null) {
+                wrapper.ge("create_date", startDate);
+            }
+            if(endDate != null) {
+                wrapper.le("create_date", endDate);
+            }
 
-        switch (sysUser.getRole()) {
-            case ADMIN:
-                break;
-            default:
-                wrapper.eq("user_id", sysUser.getId());
-                break;
-        }
+            switch (sysUser.getRole()) {
+                case ADMIN:
+                    break;
+                default:
+                    wrapper.eq("user_id", sysUser.getId());
+                    break;
+            }
 
-        return userFeedbackService.pageUserFeedbackVO(page, wrapper);
+            return userFeedbackService.pageUserFeedbackVO(page, wrapper);
+        } catch (Exception e) {
+            log.error("Error listing feedback", e);
+            return new BootstrapTableVO<>();
+        }
     }
 
     /**
@@ -95,29 +104,36 @@ public class FeedbackApiController {
                                                             @DateTimeFormat(pattern = "yyyy-MM-dd") Date startDate,
                                                             @DateTimeFormat(pattern = "yyyy-MM-dd") Date endDate,
                                                             @AuthenticationPrincipal SysUser sysUser) {
-        Page<UserFeedback> page = new Page<>(current, size);
-        page.setDesc("create_date");
-        QueryWrapper<UserFeedback> wrapper = new QueryWrapper<>();
+        log.info("List handle feedback, courier: {}, status: {}", sysUser.getUsername(), status);
+        try {
+            Page<UserFeedback> page = new Page<>(current, size);
+            page.addOrder(OrderItem.desc("create_date"));
+            QueryWrapper<UserFeedback> wrapper = new QueryWrapper<>();
 
-        Integer feedStatus = StringUtils.toInteger(status, -1);
-        if(FeedbackStatusEnum.getByStatus(feedStatus) != null) {
-            wrapper.eq("status", feedStatus);
-        }
-        if(StringUtils.isNotBlank(id)) {
-            wrapper.eq("id", id);
-        }
-        if(startDate != null) {
-            wrapper.ge("create_date", startDate);
-        }
-        if(endDate != null) {
-            wrapper.le("create_date", endDate);
-        }
+            Integer feedStatus = StringUtils.toInteger(status, -1);
+            if(FeedbackStatusEnum.getByStatus(feedStatus) != null) {
+                wrapper.eq("status", feedStatus);
+            }
 
-        wrapper.eq("type", FeedbackTypeEnum.ORDER.getType());
-        wrapper.eq("handler", sysUser.getId()).or().isNull("handler");
-        wrapper.ne("user_id", sysUser.getId());
+            if(StringUtils.isNotBlank(id)) {
+                wrapper.eq("id", id);
+            }
+            if(startDate != null) {
+                wrapper.ge("create_date", startDate);
+            }
+            if(endDate != null) {
+                wrapper.le("create_date", endDate);
+            }
 
-        return userFeedbackService.pageUserFeedbackVO(page, wrapper);
+            // 只能查询非自己创建的反馈，且无人处理，或者处理人是自己的
+            wrapper.ne("user_id", sysUser.getId())
+                    .and(i -> i.isNull("handler").or().eq("handler", sysUser.getId()));
+
+            return userFeedbackService.pageUserFeedbackVO(page, wrapper);
+        } catch (Exception e) {
+            log.error("Error listing handle feedback", e);
+            return new BootstrapTableVO<>();
+        }
     }
 
     /**

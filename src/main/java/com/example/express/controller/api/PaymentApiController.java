@@ -8,6 +8,7 @@ import com.example.express.domain.enums.RateLimitEnum;
 import com.example.express.domain.enums.ResponseErrorCodeEnum;
 import com.example.express.service.OrderInfoService;
 import com.example.express.service.OrderPaymentService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
  * @author jitwxs
  * @date 2019年04月22日 23:54
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/v1/payment")
 public class PaymentApiController {
@@ -35,14 +37,21 @@ public class PaymentApiController {
     @PostMapping("/sync")
     @RequestRateLimit(limit = RateLimitEnum.RRLimit_1_10)
     public ResponseResult syncPaymentStatus(String orderId, @AuthenticationPrincipal SysUser sysUser) {
-        if(StringUtils.isBlank(orderId)) {
-            return ResponseResult.failure(ResponseErrorCodeEnum.PARAMETER_ERROR);
-        }
+        log.info("Sync payment status, orderId: {}, user: {}", orderId, sysUser.getUsername());
+        try {
+            if(StringUtils.isBlank(orderId)) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.PARAMETER_ERROR);
+            }
 
-        if(!orderInfoService.isUserOrder(orderId, sysUser.getId())) {
-            return ResponseResult.failure(ResponseErrorCodeEnum.OPERATION_ERROR);
-        }
+            if(!orderInfoService.isUserOrder(orderId, sysUser.getId())) {
+                log.warn("User {} has no permission to sync payment status for order {}", sysUser.getUsername(), orderId);
+                return ResponseResult.failure(ResponseErrorCodeEnum.OPERATION_ERROR);
+            }
 
-        return orderPaymentService.syncPaymentInfo(orderId);
+            return orderPaymentService.syncPaymentInfo(orderId);
+        } catch (Exception e) {
+            log.error("Error syncing payment status", e);
+            return ResponseResult.failure(ResponseErrorCodeEnum.SYSTEM_ERROR);
+        }
     }
 }

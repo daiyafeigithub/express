@@ -1,6 +1,67 @@
-.ml10 {
-    margin-left: 10px;
+/* 导航栏样式优化 */
+.navbar-brand {
+    font-weight: bold;
+    color: #337ab7 !important;
 }
+
+/* 侧边栏样式优化 */
+#nav.nav-pills > li > a {
+    border-radius: 4px;
+    margin-bottom: 5px;
+    transition: all 0.3s;
+}
+
+#nav.nav-pills > li.active > a, 
+#nav.nav-pills > li.active > a:focus, 
+#nav.nav-pills > li.active > a:hover {
+    background-color: #337ab7;
+    box-shadow: 0 4px 12px rgba(51, 122, 183, 0.3);
+}
+
+/* 卡片样式优化 */
+.column h3 {
+    border-bottom: 2px solid #337ab7;
+    padding-bottom: 10px;
+    margin-bottom: 20px;
+    font-size: 18px;
+    color: #333;
+}
+
+.column p {
+    color: #666;
+    line-height: 1.6;
+}
+
+.btn-primary, .btn-info, .btn-success {
+    border-radius: 4px;
+    transition: all 0.3s;
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+/* Jumbotron 优化 */
+.jumbotron {
+    padding: 30px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    margin-bottom: 30px;
+}
+
+/* 表格优化 */
+.table {
+    background: #fff;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.table thead {
+    background: #f8f9fa;
+}
+
 .mt10 {
     margin-top: 10px;
 }

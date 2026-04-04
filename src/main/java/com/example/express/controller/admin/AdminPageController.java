@@ -5,6 +5,7 @@ import com.example.express.domain.vo.user.UserInfoVO;
 import com.example.express.service.OrderInfoService;
 import com.example.express.service.SysUserService;
 import com.example.express.service.UserFeedbackService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Controller;
 import org.springframework.ui.ModelMap;
 import org.springframework.web.bind.annotation.RequestMapping;
 
+import java.util.Collections;
 import java.util.Map;
 
 /**
@@ -31,30 +33,42 @@ public class AdminPageController {
     private UserFeedbackService feedbackService;
 
     /**
-     * 仪表盘页面
+     * 管理员主页
      */
     @RequestMapping("/dashboard")
     public String showDashboardPage(@AuthenticationPrincipal SysUser sysUser, ModelMap map) {
+        if (sysUser == null) {
+            return "redirect:/login";
+        }
         String frontName = sysUserService.getFrontName(sysUser);
         map.put("frontName", frontName);
 
         Map<String, Integer> data = sysUserService.getAdminDashboardData();
+        if (data == null) {
+            data = Collections.emptyMap();
+        }
 
-        String userDesc = "今日注册用数：" + data.get("today") +
-                "，总用户数：" + data.get("total") +
-                "，其中禁用用户数：" + data.get("disEnable") +
-                "，冻结用户数：" + data.get("lock");
+        String userDesc = "今日注册用数：" + data.getOrDefault("today", 0) +
+                "，总用户数：" + data.getOrDefault("total", 0) +
+                "，其中禁用用户数：" + data.getOrDefault("disEnable", 0) +
+                "，冻结用户数：" + data.getOrDefault("lock", 0);
         map.put("userDesc", userDesc);
 
         Map<String, Integer> data1 = orderInfoService.getAdminDashboardData();
-        String orderDesc = "今日新增订单数：" + data1.get("today") +
-                "，总等待接单数：：" + data1.get("wait") +
-                "，正在派送数：" + data1.get("transport");
+        if (data1 == null) {
+            data1 = Collections.emptyMap();
+        }
+        String orderDesc = "今日新增订单数：" + data1.getOrDefault("today", 0) +
+                "，总等待接单数：：" + data1.getOrDefault("wait", 0) +
+                "，正在派送数：" + data1.getOrDefault("transport", 0);
         map.put("orderDesc", orderDesc);
 
         Map<String, Integer> data2 = feedbackService.getAdminDashboardData();
-        String feedbackDesc = "今日新增反馈数：" + data2.get("today") +
-                "，等待处理数：" + data2.get("wait");
+        if (data2 == null) {
+            data2 = Collections.emptyMap();
+        }
+        String feedbackDesc = "今日新增反馈数：" + data2.getOrDefault("today", 0) +
+                "，等待处理数：" + data2.getOrDefault("wait", 0);
         map.put("feedbackDesc", feedbackDesc);
 
         return "admin/dashboard";
@@ -110,6 +124,9 @@ public class AdminPageController {
      */
     @RequestMapping("/info")
     public String showInfoPage(@AuthenticationPrincipal SysUser sysUser,ModelMap map) {
+        if (sysUser == null) {
+            return "redirect:/login";
+        }
         map.put("frontName", sysUserService.getFrontName(sysUser));
         UserInfoVO userInfo = sysUserService.getUserInfo(sysUser.getId());
         map.put("info", userInfo);

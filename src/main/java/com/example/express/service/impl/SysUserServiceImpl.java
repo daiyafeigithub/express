@@ -153,22 +153,26 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 
     @Override
     public boolean checkExistByIdCard(String idCard) {
-        SysUser user = sysUserMapper.selectByIdCard(idCard);
-
-        return user != null;
+        try {
+            SysUser user = sysUserMapper.selectByIdCard(idCard);
+            return user != null;
+        } catch (Exception e) {
+            log.error("Check exist by idCard error", e);
+            return false;
+        }
     }
 
     @Override
     public boolean checkApplyRealName(SysUser user) {
-        if(StringUtils.isAnyBlank(user.getRealName(), user.getIdCard())) {
-            return false;
-        }
-        return true;
+        if (user == null) return false;
+        return StringUtils.isNoneBlank(user.getRealName(), user.getIdCard());
     }
 
     @Override
     public boolean canChangeRole(SysUser user) {
+        if (user == null) return false;
         SysRoleEnum role = user.getRole();
+        if (role == null) return false;
         switch (role) {
             case USER:
                 // user --> courier : 实名 + 不存在未完成单
@@ -183,16 +187,16 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 
     @Override
     public boolean checkPassword(String userId, String password) {
-        SysUser user = getById(userId);
-        if(user == null) {
+        try {
+            SysUser user = getById(userId);
+            if(user == null || StringUtils.isBlank(user.getPassword())) {
+                return false;
+            }
+            return passwordEncoder.matches(password, user.getPassword());
+        } catch (Exception e) {
+            log.error("Check password error", e);
             return false;
         }
-
-        if(StringUtils.isBlank(user.getPassword())) {
-            return false;
-        }
-
-        return passwordEncoder.matches(password, user.getPassword());
     }
 
     @Override
@@ -206,26 +210,34 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
         DefaultTransactionDefinition definition = new DefaultTransactionDefinition();
         TransactionStatus status = transactionManager.getTransaction(definition);
 
-        SysUser sysUser = getByThirdLogin(thirdLoginId, thirdLoginTypeEnum);
-        if(sysUser == null) {
-            // 三方注册
-            if(!registryByThirdLogin(thirdLoginId, thirdLoginTypeEnum)) {
-                transactionManager.rollback(status);
-                return ResponseResult.failure(ResponseErrorCodeEnum.REGISTRY_ERROR);
-            }
-            sysUser = getByThirdLogin(thirdLoginId, thirdLoginTypeEnum);
+        try {
+            SysUser sysUser = getByThirdLogin(thirdLoginId, thirdLoginTypeEnum);
             if(sysUser == null) {
-                transactionManager.rollback(status);
-                return ResponseResult.failure(ResponseErrorCodeEnum.THIRD_LOGIN_ERROR);
+                // 三方注册
+                if(!registryByThirdLogin(thirdLoginId, thirdLoginTypeEnum)) {
+                    transactionManager.rollback(status);
+                    return ResponseResult.failure(ResponseErrorCodeEnum.REGISTRY_ERROR);
+                }
+                sysUser = getByThirdLogin(thirdLoginId, thirdLoginTypeEnum);
+                if(sysUser == null) {
+                    transactionManager.rollback(status);
+                    return ResponseResult.failure(ResponseErrorCodeEnum.THIRD_LOGIN_ERROR);
+                }
             }
-        }
-        transactionManager.commit(status);
+            transactionManager.commit(status);
 
-        ResponseResult checkAccountStatus = checkAccountStatus(sysUser);
-        if(checkAccountStatus.getCode() != ResponseErrorCodeEnum.SUCCESS.getCode()) {
-            return checkAccountStatus;
-        } else {
-            return ResponseResult.success(sysUser);
+            ResponseResult checkAccountStatus = checkAccountStatus(sysUser);
+            if(checkAccountStatus.getCode() != ResponseErrorCodeEnum.SUCCESS.getCode()) {
+                return checkAccountStatus;
+            } else {
+                return ResponseResult.success(sysUser);
+            }
+        } catch (Exception e) {
+            log.error("Third login error", e);
+            if (!status.isCompleted()) {
+                transactionManager.rollback(status);
+            }
+            return ResponseResult.failure(ResponseErrorCodeEnum.SYSTEM_ERROR);
         }
     }
 
@@ -235,40 +247,53 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
         DefaultTransactionDefinition definition = new DefaultTransactionDefinition();
         TransactionStatus status = transactionManager.getTransaction(definition);
 
-        if(checkExistByUsername(username)) {
-            transactionManager.rollback(status);
-            return ResponseResult.failure(ResponseErrorCodeEnum.USERNAME_EXIST);
+        try {
+            if(checkExistByUsername(username)) {
+                transactionManager.rollback(status);
+                return ResponseResult.failure(ResponseErrorCodeEnum.USERNAME_EXIST);
+            }
+
+            SysUser user = SysUser.builder()
+                    .username(username)
+                    .password(passwordEncoder.encode(password))
+                    .role(SysRoleEnum.DIS_FORMAL).build();
+
+            if(!this.retBool(sysUserMapper.insert(user))) {
+                transactionManager.rollback(status);
+                return ResponseResult.failure(ResponseErrorCodeEnum.REGISTRY_ERROR);
+            }
+
+            transactionManager.commit(status);
+            return ResponseResult.success();
+        } catch (Exception e) {
+            log.error("Registry by username error", e);
+            if (!status.isCompleted()) {
+                transactionManager.rollback(status);
+            }
+            return ResponseResult.failure(ResponseErrorCodeEnum.SYSTEM_ERROR);
         }
-
-        SysUser user = SysUser.builder()
-                .username(username)
-                .password(passwordEncoder.encode(password))
-                .role(SysRoleEnum.DIS_FORMAL).build();
-
-        if(!this.retBool(sysUserMapper.insert(user))) {
-            transactionManager.rollback(status);
-            return ResponseResult.failure(ResponseErrorCodeEnum.REGISTRY_ERROR);
-        }
-
-        transactionManager.commit(status);
-        return ResponseResult.success();
     }
 
     @Override
     public ResponseResult registryByTel(String tel, String code, HttpSession session) {
-        ResponseErrorCodeEnum codeEnum = smsService.check(session, tel, code);
-        if(codeEnum != ResponseErrorCodeEnum.SUCCESS) {
-            return ResponseResult.failure(codeEnum);
-        }
+        try {
+            ResponseErrorCodeEnum codeEnum = smsService.check(session, tel, code);
+            if(codeEnum != ResponseErrorCodeEnum.SUCCESS) {
+                return ResponseResult.failure(codeEnum);
+            }
 
-        SysUser user = SysUser.builder()
-                .tel(tel)
-                .role(SysRoleEnum.DIS_FORMAL).build();
+            SysUser user = SysUser.builder()
+                    .tel(tel)
+                    .role(SysRoleEnum.DIS_FORMAL).build();
 
-        if(!this.retBool(sysUserMapper.insert(user))) {
-            return ResponseResult.failure(ResponseErrorCodeEnum.REGISTRY_ERROR);
+            if(!this.retBool(sysUserMapper.insert(user))) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.REGISTRY_ERROR);
+            }
+            return ResponseResult.success();
+        } catch (Exception e) {
+            log.error("Registry by tel error", e);
+            return ResponseResult.failure(ResponseErrorCodeEnum.SYSTEM_ERROR);
         }
-        return ResponseResult.success();
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -277,163 +302,226 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
         DefaultTransactionDefinition definition = new DefaultTransactionDefinition();
         TransactionStatus status = transactionManager.getTransaction(definition);
 
-        // 初始化user
-        SysUser user = SysUser.builder()
-                .role(SysRoleEnum.DIS_FORMAL)
-                .sex(SexEnum.getByName(gender))
-                .build();
+        try {
+            // 初始化user
+            SysUser user = SysUser.builder()
+                    .role(SysRoleEnum.DIS_FORMAL)
+                    .sex(SexEnum.getByName(gender))
+                    .build();
 
-        if(!this.retBool(sysUserMapper.insert(user))) {
-            transactionManager.rollback(status);
-            return ResponseResult.failure(ResponseErrorCodeEnum.REGISTRY_ERROR);
+            if(!this.retBool(sysUserMapper.insert(user))) {
+                transactionManager.rollback(status);
+                return ResponseResult.failure(ResponseErrorCodeEnum.REGISTRY_ERROR);
+            }
+
+            ResponseResult result = aipService.faceRegistryByFaceToken(faceToken, user.getId());
+            if(result.getCode() != ResponseErrorCodeEnum.SUCCESS.getCode()) {
+                transactionManager.rollback(status);
+                return result;
+            }
+
+            transactionManager.commit(status);
+            return ResponseResult.success();
+        } catch (Exception e) {
+            log.error("Registry by face error", e);
+            if (!status.isCompleted()) {
+                transactionManager.rollback(status);
+            }
+            return ResponseResult.failure(ResponseErrorCodeEnum.SYSTEM_ERROR);
         }
-
-        ResponseResult result = aipService.faceRegistryByFaceToken(faceToken, user.getId());
-        if(result.getCode() != ResponseErrorCodeEnum.SUCCESS.getCode()) {
-            transactionManager.rollback(status);
-            return result;
-        }
-
-        transactionManager.commit(status);
-        return ResponseResult.success();
     }
 
     @Override
     public ResponseResult resetPassword(String userId, String oldPassword, String newPassword) {
-        SysUser user = getById(userId);
+        try {
+            SysUser user = getById(userId);
+            if (user == null) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.USER_NOT_EXIST);
+            }
 
-        if(!passwordEncoder.matches(oldPassword, user.getPassword())) {
-            return ResponseResult.failure(ResponseErrorCodeEnum.PASSWORD_ERROR);
+            if(!passwordEncoder.matches(oldPassword, user.getPassword())) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.PASSWORD_ERROR);
+            }
+
+            user.setPassword(passwordEncoder.encode(newPassword));
+
+            if(!updateById(user)) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.PASSWORD_RESET_ERROR);
+            }
+
+            return ResponseResult.success();
+        } catch (Exception e) {
+            log.error("Reset password error", e);
+            return ResponseResult.failure(ResponseErrorCodeEnum.SYSTEM_ERROR);
         }
-
-        user.setPassword(passwordEncoder.encode(newPassword));
-
-        if(!updateById(user)) {
-            return ResponseResult.failure(ResponseErrorCodeEnum.PASSWORD_RESET_ERROR);
-        }
-
-
-        return ResponseResult.success();
     }
 
     @Override
     public ResponseResult setUsernameAndPassword(SysUser user, String username, String password) {
-        if(StringUtils.isNotBlank(user.getUsername())) {
-            return ResponseResult.failure(ResponseErrorCodeEnum.USERNAME_DISABLE_MODIFY);
-        }
+        try {
+            if (user == null) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.USER_NOT_EXIST);
+            }
+            if(StringUtils.isNotBlank(user.getUsername())) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.USERNAME_DISABLE_MODIFY);
+            }
 
-        if(checkExistByUsername(username)) {
-            return ResponseResult.failure(ResponseErrorCodeEnum.USERNAME_EXIST);
-        }
+            if(checkExistByUsername(username)) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.USERNAME_EXIST);
+            }
 
-        user.setUsername(username);
-        user.setPassword(passwordEncoder.encode(password));
+            user.setUsername(username);
+            user.setPassword(passwordEncoder.encode(password));
 
-        if(!updateById(user)) {
-            return ResponseResult.failure(ResponseErrorCodeEnum.OPERATION_ERROR);
+            if(!updateById(user)) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.OPERATION_ERROR);
+            }
+            return ResponseResult.success();
+        } catch (Exception e) {
+            log.error("Set username and password error", e);
+            return ResponseResult.failure(ResponseErrorCodeEnum.SYSTEM_ERROR);
         }
-        return ResponseResult.success();
     }
 
     @Override
     public ResponseResult setRealName(SysUser user, String realName, String idCard) {
-        // 实名信息不支持修改
-        if(StringUtils.isNotBlank(user.getIdCard()) || StringUtils.isNotBlank(user.getRealName())) {
-            return ResponseResult.failure(ResponseErrorCodeEnum.IDCARD_OR_REALNAME_EXIST);
-        }
+        try {
+            if (user == null) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.USER_NOT_EXIST);
+            }
+            // 实名信息不支持修改
+            if(StringUtils.isNotBlank(user.getIdCard()) || StringUtils.isNotBlank(user.getRealName())) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.IDCARD_OR_REALNAME_EXIST);
+            }
 
-        idCard = idCard.trim();
-        if(!IDValidateUtils.check(idCard)) {
-            return ResponseResult.failure(ResponseErrorCodeEnum.ID_CARD_INVALID);
-        }
-        if(checkExistByIdCard(idCard)) {
-            return ResponseResult.failure(ResponseErrorCodeEnum.IDCARD_EXIST);
-        }
+            idCard = idCard.trim();
+            if(!IDValidateUtils.check(idCard)) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.ID_CARD_INVALID);
+            }
+            if(checkExistByIdCard(idCard)) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.IDCARD_EXIST);
+            }
 
-        if(StringUtils.containsSpecial(realName)) {
-            return ResponseResult.failure(ResponseErrorCodeEnum.REAL_NAME_INVALID);
-        }
+            if(StringUtils.containsSpecial(realName)) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.REAL_NAME_INVALID);
+            }
 
-        user.setRealName(realName);
-        user.setIdCard(idCard);
-        if(!updateById(user)) {
-            return ResponseResult.failure(ResponseErrorCodeEnum.OPERATION_ERROR);
+            user.setRealName(realName);
+            user.setIdCard(idCard);
+            if(!updateById(user)) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.OPERATION_ERROR);
+            }
+            return ResponseResult.success();
+        } catch (Exception e) {
+            log.error("Set real name error", e);
+            return ResponseResult.failure(ResponseErrorCodeEnum.SYSTEM_ERROR);
         }
-        return ResponseResult.success();
     }
 
     @Override
     public ResponseResult setTel(SysUser user, String tel, String code, HttpSession session) {
-        ResponseErrorCodeEnum check = smsService.check(session, tel, code);
-        if(check != ResponseErrorCodeEnum.SUCCESS) {
-            return ResponseResult.failure(check);
-        }
+        try {
+            if (user == null) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.USER_NOT_EXIST);
+            }
+            ResponseErrorCodeEnum check = smsService.check(session, tel, code);
+            if(check != ResponseErrorCodeEnum.SUCCESS) {
+                return ResponseResult.failure(check);
+            }
 
-        if(checkExistByTel(tel)) {
-            return ResponseResult.failure(ResponseErrorCodeEnum.TEL_EXIST);
-        }
+            if(checkExistByTel(tel)) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.TEL_EXIST);
+            }
 
-        user.setTel(tel);
-        if(!updateById(user)) {
-            return ResponseResult.failure(ResponseErrorCodeEnum.OPERATION_ERROR);
+            user.setTel(tel);
+            if(!updateById(user)) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.OPERATION_ERROR);
+            }
+            return ResponseResult.success();
+        } catch (Exception e) {
+            log.error("Set tel error", e);
+            return ResponseResult.failure(ResponseErrorCodeEnum.SYSTEM_ERROR);
         }
-        return ResponseResult.success();
     }
 
     @Override
     public ResponseResult setSex(SysUser user, SexEnum sexEnum) {
-        user.setSex(sexEnum);
-        if(!updateById(user)) {
-            return ResponseResult.failure(ResponseErrorCodeEnum.OPERATION_ERROR);
+        try {
+            if (user == null) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.USER_NOT_EXIST);
+            }
+            user.setSex(sexEnum);
+            if(!updateById(user)) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.OPERATION_ERROR);
+            }
+            return ResponseResult.success();
+        } catch (Exception e) {
+            log.error("Set sex error", e);
+            return ResponseResult.failure(ResponseErrorCodeEnum.SYSTEM_ERROR);
         }
-        return ResponseResult.success();
     }
 
     @Override
     public ResponseResult setSchoolInfo(SysUser user, Integer schoolId, String studentIdCard) {
-        DataSchool dataSchool = dataSchoolService.getById(schoolId);
-        if(dataSchool == null) {
-            return ResponseResult.failure(ResponseErrorCodeEnum.SCHOOL_NOT_EXIST);
-        }
-        if(!StringUtils.isNumeric(studentIdCard)) {
-            return ResponseResult.failure(ResponseErrorCodeEnum.STUDENT_IDCARD_NOT_NUMBER);
-        }
+        try {
+            if (user == null) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.USER_NOT_EXIST);
+            }
+            DataSchool dataSchool = dataSchoolService.getById(schoolId);
+            if(dataSchool == null) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.SCHOOL_NOT_EXIST);
+            }
+            if(!StringUtils.isNumeric(studentIdCard)) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.STUDENT_IDCARD_NOT_NUMBER);
+            }
 
-        user.setSchoolId(schoolId);
-        user.setStudentIdCard(studentIdCard);
-        if(!updateById(user)) {
-            return ResponseResult.failure(ResponseErrorCodeEnum.OPERATION_ERROR);
+            user.setSchoolId(schoolId);
+            user.setStudentIdCard(studentIdCard);
+            if(!updateById(user)) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.OPERATION_ERROR);
+            }
+            return ResponseResult.success();
+        } catch (Exception e) {
+            log.error("Set school info error", e);
+            return ResponseResult.failure(ResponseErrorCodeEnum.SYSTEM_ERROR);
         }
-        return ResponseResult.success();
     }
 
     @Override
     public ResponseResult changeRole(String userId) {
-        SysUser user = getById(userId);
-        SysRoleEnum role = user.getRole();
-        if(role != SysRoleEnum.USER && role != SysRoleEnum.COURIER) {
-            return ResponseResult.failure(ResponseErrorCodeEnum.OPERATION_NOT_SUPPORT);
-        }
-
-        boolean isExist = orderInfoService.isExistUnfinishedOrder(user.getId(), role);
-        if(isExist) {
-            return ResponseResult.failure(ResponseErrorCodeEnum.EXIST_UNFINISHED_ORDER);
-        }
-
-        // user --> courier 需要实名认证
-        if(role == SysRoleEnum.USER) {
-            if(!checkApplyRealName(user)) {
-                return ResponseResult.failure(ResponseErrorCodeEnum.NOT_APPLY_REAL_NAME);
+        try {
+            SysUser user = getById(userId);
+            if (user == null) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.USER_NOT_EXIST);
             }
-            user.setRole(SysRoleEnum.COURIER);
-        } else {
-            user.setRole(SysRoleEnum.USER);
-        }
+            SysRoleEnum role = user.getRole();
+            if(role != SysRoleEnum.USER && role != SysRoleEnum.COURIER) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.OPERATION_NOT_SUPPORT);
+            }
 
-        if(!updateById(user)) {
-            return ResponseResult.failure(ResponseErrorCodeEnum.OPERATION_ERROR);
+            boolean isExist = orderInfoService.isExistUnfinishedOrder(user.getId(), role);
+            if(isExist) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.EXIST_UNFINISHED_ORDER);
+            }
+
+            // user --> courier 需要实名认证
+            if(role == SysRoleEnum.USER) {
+                if(!checkApplyRealName(user)) {
+                    return ResponseResult.failure(ResponseErrorCodeEnum.NOT_APPLY_REAL_NAME);
+                }
+                user.setRole(SysRoleEnum.COURIER);
+            } else {
+                user.setRole(SysRoleEnum.USER);
+            }
+
+            if(!updateById(user)) {
+                return ResponseResult.failure(ResponseErrorCodeEnum.OPERATION_ERROR);
+            }
+            return ResponseResult.success();
+        } catch (Exception e) {
+            log.error("Change role error", e);
+            return ResponseResult.failure(ResponseErrorCodeEnum.SYSTEM_ERROR);
         }
-        return ResponseResult.success();
     }
 
     @Override
@@ -443,6 +531,9 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
 
     @Override
     public String getFrontName(SysUser sysUser) {
+        if (sysUser == null) {
+            return "未知用户";
+        }
         /*
          * 获取显示用户名
          * 1. username字段
@@ -455,7 +546,7 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
             username = sysUser.getUsername();
         } else if(StringUtils.isNotBlank(sysUser.getTel())) {
             username = sysUser.getTel();
-        } else if(sysUser.getThirdLogin() != ThirdLoginTypeEnum.NONE ){
+        } else if(sysUser.getThirdLogin() != null && sysUser.getThirdLogin() != ThirdLoginTypeEnum.NONE ){
             username = sysUser.getThirdLogin().getName() + "用户";
         } else {
             username = "人脸登录用户";
@@ -482,62 +573,74 @@ public class SysUserServiceImpl extends ServiceImpl<SysUserMapper, SysUser> impl
         DefaultTransactionDefinition definition = new DefaultTransactionDefinition();
         TransactionStatus status = transactionManager.getTransaction(definition);
 
-        SysUser sysUser = getById(userId);
-        if(sysUser == null) {
-            transactionManager.rollback(status);
-            return ResponseResult.failure(ResponseErrorCodeEnum.USER_NOT_EXIST);
-        }
-
-        // faceToken校验
-        boolean isExistFace = StringUtils.isNotBlank(sysUser.getFaceToken());
-        if(StringUtils.isBlank(faceToken)) {
-            transactionManager.rollback(status);
-            return isExistFace ?
-                    ResponseResult.failure(ResponseErrorCodeEnum.NOT_FACE_TO_UPDATE) :
-                    ResponseResult.failure(ResponseErrorCodeEnum.NOT_FACE_TO_BIND);
-        }
-
-        // 更新数据库
-        sysUser.setFaceToken(faceToken);
-        if(!updateById(sysUser)) {
-            transactionManager.rollback(status);
-            return ResponseResult.failure(ResponseErrorCodeEnum.OPERATION_ERROR);
-        }
-
-        // 更新AIP数据
-        if(isExistFace) {
-            // 人脸更新
-            ResponseResult result = aipService.faceUpdateByFaceToken(faceToken, userId);
-            if(result.getCode() != ResponseErrorCodeEnum.SUCCESS.getCode()) {
+        try {
+            SysUser sysUser = getById(userId);
+            if(sysUser == null) {
                 transactionManager.rollback(status);
-                return result;
+                return ResponseResult.failure(ResponseErrorCodeEnum.USER_NOT_EXIST);
             }
 
-        } else {
-            // 绑定人脸
-            ResponseResult result = aipService.faceRegistryByFaceToken(faceToken, userId);
-            if(result.getCode() != ResponseErrorCodeEnum.SUCCESS.getCode()) {
+            // faceToken校验
+            boolean isExistFace = StringUtils.isNotBlank(sysUser.getFaceToken());
+            if(StringUtils.isBlank(faceToken)) {
                 transactionManager.rollback(status);
-                return result;
+                return isExistFace ?
+                        ResponseResult.failure(ResponseErrorCodeEnum.NOT_FACE_TO_UPDATE) :
+                        ResponseResult.failure(ResponseErrorCodeEnum.NOT_FACE_TO_BIND);
             }
-        }
 
-        transactionManager.commit(status);
-        return ResponseResult.success();
+            // 更新数据库
+            sysUser.setFaceToken(faceToken);
+            if(!updateById(sysUser)) {
+                transactionManager.rollback(status);
+                return ResponseResult.failure(ResponseErrorCodeEnum.OPERATION_ERROR);
+            }
+
+            // 更新AIP数据
+            if(isExistFace) {
+                // 人脸更新
+                ResponseResult result = aipService.faceUpdateByFaceToken(faceToken, userId);
+                if(result.getCode() != ResponseErrorCodeEnum.SUCCESS.getCode()) {
+                    transactionManager.rollback(status);
+                    return result;
+                }
+
+            } else {
+                // 绑定人脸
+                ResponseResult result = aipService.faceRegistryByFaceToken(faceToken, userId);
+                if(result.getCode() != ResponseErrorCodeEnum.SUCCESS.getCode()) {
+                    transactionManager.rollback(status);
+                    return result;
+                }
+            }
+
+            transactionManager.commit(status);
+            return ResponseResult.success();
+        } catch (Exception e) {
+            log.error("Bind or update face error", e);
+            if (!status.isCompleted()) {
+                transactionManager.rollback(status);
+            }
+            return ResponseResult.failure(ResponseErrorCodeEnum.SYSTEM_ERROR);
+        }
     }
 
     @Override
     public Map<String, Integer> getAdminDashboardData() {
         Map<String, Integer> map = new HashMap<>();
 
-        Integer todayCount = sysUserMapper.selectCount(new QueryWrapper<SysUser>().between("create_date",
+        Long todayCountRaw = sysUserMapper.selectCount(new QueryWrapper<SysUser>().between("create_date",
                 LocalDateTime.of(LocalDate.now(), LocalTime.MIDNIGHT), LocalDateTime.now()));
+        Integer todayCount = todayCountRaw != null ? Math.toIntExact(todayCountRaw) : 0;
 
-        Integer totalCount = sysUserMapper.selectCount(null);
+        Long totalCountRaw = sysUserMapper.selectCount(null);
+        Integer totalCount = totalCountRaw != null ? Math.toIntExact(totalCountRaw) : 0;
 
-        Integer disEnableCount = sysUserMapper.selectCount(new QueryWrapper<SysUser>().eq("has_enable", 0));
+        Long disEnableCountRaw = sysUserMapper.selectCount(new QueryWrapper<SysUser>().eq("has_enable", 0));
+        Integer disEnableCount = disEnableCountRaw != null ? Math.toIntExact(disEnableCountRaw) : 0;
 
-        Integer lockCount = sysUserMapper.selectCount(new QueryWrapper<SysUser>().gt("lock_date", LocalDateTime.now()));
+        Long lockCountRaw = sysUserMapper.selectCount(new QueryWrapper<SysUser>().gt("lock_date", LocalDateTime.now()));
+        Integer lockCount = lockCountRaw != null ? Math.toIntExact(lockCountRaw) : 0;
 
         map.put("today", todayCount);
         map.put("total", totalCount);

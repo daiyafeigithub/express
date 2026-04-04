@@ -20,7 +20,7 @@ import java.util.Collection;
 @Data
 @Builder
 public class SysUser implements UserDetails, CredentialsContainer {
-    @TableId(type = IdType.UUID)
+    @TableId(type = IdType.ASSIGN_UUID)
     private String id;
 
     private String username;

@@ -1,5 +1,6 @@
 package com.example.express.controller.api;
 
+import com.baomidou.mybatisplus.core.metadata.OrderItem;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.example.express.common.util.StringUtils;
 import com.example.express.domain.ResponseResult;
@@ -13,6 +14,7 @@ import com.example.express.domain.vo.courier.CourierOrderVO;
 import com.example.express.exception.CustomException;
 import com.example.express.service.OrderInfoService;
 import com.example.express.service.SysUserService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -26,6 +28,7 @@ import java.util.Map;
  * @author jitwxs
  * @date 2019年04月22日 23:54
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/v1/order")
 public class OrderApiController {
@@ -46,28 +49,37 @@ public class OrderApiController {
     @PreAuthorize("hasRole('ROLE_USER') or hasRole('ROLE_COURIER') or hasRole('ROLE_ADMIN')")
     public ResponseResult getOrderDesc(@PathVariable String id,
                                        @AuthenticationPrincipal SysUser sysUser) {
-        // 权限校验
-        switch (sysUser.getRole()) {
-            case USER:
-                if(!orderInfoService.isUserOrder(id, sysUser.getId())) {
-                    return ResponseResult.failure(ResponseErrorCodeEnum.NO_PERMISSION);
-                }
-                break;
-            case COURIER:
-                if(!orderInfoService.isCourierOrder(id, sysUser.getId())) {
-                    return ResponseResult.failure(ResponseErrorCodeEnum.NO_PERMISSION);
-                }
-                break;
-            default:
-                break;
-        }
+        log.info("Get order desc, id: {}, user: {}", id, sysUser.getUsername());
+        try {
+            // 权限校验
+            switch (sysUser.getRole()) {
+                case USER:
+                    if(!orderInfoService.isUserOrder(id, sysUser.getId())) {
+                        log.warn("User {} has no permission to order {}", sysUser.getUsername(), id);
+                        return ResponseResult.failure(ResponseErrorCodeEnum.NO_PERMISSION);
+                    }
+                    break;
+                case COURIER:
+                    if(!orderInfoService.isCourierOrder(id, sysUser.getId())) {
+                        log.warn("Courier {} has no permission to order {}", sysUser.getUsername(), id);
+                        return ResponseResult.failure(ResponseErrorCodeEnum.NO_PERMISSION);
+                    }
+                    break;
+                default:
+                    break;
+            }
 
-        OrderDescVO descVO = orderInfoService.getDescVO(id);
-        if(descVO == null) {
-            return ResponseResult.failure(ResponseErrorCodeEnum.ORDER_NOT_EXIST);
-        }
+            OrderDescVO descVO = orderInfoService.getDescVO(id);
+            if(descVO == null) {
+                log.warn("Order {} not exist", id);
+                return ResponseResult.failure(ResponseErrorCodeEnum.ORDER_NOT_EXIST);
+            }
 
-        return ResponseResult.success(descVO);
+            return ResponseResult.success(descVO);
+        } catch (Exception e) {
+            log.error("Error getting order desc", e);
+            return ResponseResult.failure(ResponseErrorCodeEnum.SYSTEM_ERROR);
+        }
     }
 
     /**
@@ -85,49 +97,56 @@ public class OrderApiController {
                                                        @RequestParam(required = false, defaultValue = "10") Integer size,
                                                        String type, String startDate, String endDate, String status, String id, String payment,
                                                        @AuthenticationPrincipal SysUser sysUser) {
-        Integer isDelete = StringUtils.toInteger(type, -1);
-        if(isDelete == -1) {
-            throw new CustomException(ResponseErrorCodeEnum.PARAMETER_ERROR);
-        }
+        log.info("List self order, user: {}, role: {}, type: {}, status: {}", sysUser.getUsername(), sysUser.getRole(), type, status);
+        try {
+            Integer isDelete = StringUtils.toInteger(type, -1);
+            if(isDelete == -1) {
+                log.warn("Invalid type parameter: {}", type);
+                throw new CustomException(ResponseErrorCodeEnum.PARAMETER_ERROR);
+            }
 
-        String userId = sysUser.getId();
-        StringBuilder sql = new StringBuilder();
+            String userId = sysUser.getId();
+            StringBuilder sql = new StringBuilder();
 
-        OrderStatusEnum orderStatusEnum = OrderStatusEnum.getByStatus(StringUtils.toInteger(status, -1));
-        if(orderStatusEnum != null) {
-            sql.append(" AND info.status = ").append(orderStatusEnum.getStatus());
-        }
+            OrderStatusEnum orderStatusEnum = OrderStatusEnum.getByStatus(StringUtils.toInteger(status, -1));
+            if(orderStatusEnum != null) {
+                sql.append(" AND info.status = ").append(orderStatusEnum.getStatus());
+            }
 
-        PaymentStatusEnum paymentStatusEnum = PaymentStatusEnum.getByStatus(StringUtils.toInteger(payment, -1));
-        if(paymentStatusEnum != null) {
-            sql.append(" AND payment.status = ").append(paymentStatusEnum.getStatus());
-        }
+            if(StringUtils.isNotBlank(startDate)) {
+                sql.append(" AND info.create_date >= '").append(startDate).append("'");
+            }
+            if(StringUtils.isNotBlank(endDate)) {
+                sql.append(" AND info.create_date <= '").append(endDate).append("'");
+            }
+            if(StringUtils.isNotBlank(id)) {
+                sql.append(" AND info.id LIKE '%").append(id).append("%' ");
+            }
+            PaymentStatusEnum paymentStatusEnum = PaymentStatusEnum.getByStatus(StringUtils.toInteger(payment, -1));
+            if(paymentStatusEnum != null) {
+                sql.append(" AND payment.status = ").append(paymentStatusEnum.getStatus());
+            }
 
-        if(StringUtils.isNotBlank(startDate)) {
-            sql.append(" AND info.create_date > '").append(startDate).append("'");
-        }
+            Page page = new Page<>(current, size);
+            page.addOrder(OrderItem.desc("create_date"));
 
-        if(StringUtils.isNotBlank(endDate)) {
-            sql.append(" AND info.create_date < '").append(endDate).append("'");
-        }
-
-        if(StringUtils.isNotBlank(id)) {
-            sql.append(" AND info.id = ").append(id);
-        }
-
-        Page page = new Page<>(current, size);
-        page.setDesc("create_date");
-        switch (sysUser.getRole()) {
-            case USER:
-                sql.append(" AND info.user_id = '").append(userId).append("'");
-                return orderInfoService.pageUserOrderVO(userId, page, sql.toString(), isDelete);
-            case COURIER:
-                sql.append(" AND info.courier_id = '").append(userId).append("'");
-                return orderInfoService.pageCourierOrderVO(userId, page, sql.toString());
-            case ADMIN:
-                return orderInfoService.pageAdminOrderVO(page, sql.toString(), isDelete);
-            default:
-                return new BootstrapTableVO();
+            switch (sysUser.getRole()) {
+                case USER:
+                    sql.append(" AND info.user_id = '").append(userId).append("'");
+                    return orderInfoService.pageUserOrderVO(userId, page, sql.toString(), isDelete);
+                case COURIER:
+                    sql.append(" AND info.courier_id = '").append(userId).append("'");
+                    return orderInfoService.pageCourierOrderVO(userId, page, sql.toString());
+                case ADMIN:
+                    return orderInfoService.pageAdminOrderVO(page, sql.toString(), isDelete);
+                default:
+                    return new BootstrapTableVO();
+            }
+        } catch (CustomException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Error listing self order", e);
+            return new BootstrapTableVO();
         }
     }
 
@@ -140,7 +159,7 @@ public class OrderApiController {
                                                               @RequestParam(required = false, defaultValue = "10") Integer size,
                                                               String startDate, String endDate, String id, @AuthenticationPrincipal SysUser sysUser) {
         Page<CourierOrderVO> page = new Page<>(current, size);
-        page.setDesc("create_date");
+        page.addOrder(OrderItem.desc("create_date"));
 
         StringBuilder sql = new StringBuilder();
         sql.append(" AND info.status = ").append(OrderStatusEnum.WAIT_DIST.getStatus());

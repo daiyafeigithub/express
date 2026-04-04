@@ -14,7 +14,7 @@ import java.time.LocalDateTime;
  */
 @Data
 public class OrderInfo {
-    @TableId(type = IdType.ID_WORKER_STR)
+    @TableId(type = IdType.ASSIGN_ID)
     private String id;
 
     private String userId;

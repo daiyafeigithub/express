@@ -23,6 +23,8 @@ public interface UserFeedbackService extends IService<UserFeedback> {
 
     ResponseResult batchCancelOrder(String[] ids, String id);
 
+    ResponseResult handleFeedback(String id, String handlerId, String result);
+
     Map<String, Integer> getAdminDashboardData();
 
     Map<String, Integer> getUserDashboardData(String userId);
